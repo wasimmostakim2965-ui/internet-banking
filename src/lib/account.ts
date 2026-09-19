@@ -195,10 +195,21 @@ export async function saveSecurity(userId: string, patch: Partial<SecuritySettin
   if (error) throw error;
 }
 
-export async function ensureLedgerAccount(_userId: string, currency = 'USD') {
-  const { data, error } = await supabase.rpc('ensure_ledger_account', {
-    p_currency: currency,
-  });
+export async function ensureLedgerAccount(userId: string, currency = 'USD') {
+  const { data: existing, error: lookupError } = await supabase
+    .from('ledger_accounts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('currency', currency)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+  if (existing) return existing as LedgerAccount;
+
+  const { data, error } = await supabase
+    .from('ledger_accounts')
+    .insert({ user_id: userId, currency, available_minor: 0, pending_minor: 0, status: 'unfunded' })
+    .select('*')
+    .single();
   if (error) throw error;
   return data as LedgerAccount;
 }
