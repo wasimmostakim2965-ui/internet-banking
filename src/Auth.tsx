@@ -269,6 +269,7 @@ export default function Auth({onBack,onSuccess,initialMode='signup',demoMode=fal
     await saveProfile(userId,{onboarding_status:'submitted'});
     await ensureLedgerAccount(userId,'USD');
     await recordAudit(userId,'onboarding.submitted','kyc_application',userId,{mfaEnabled:mfa});
+    window.localStorage.removeItem(draftKey(email));
     go(7);
   };
 
