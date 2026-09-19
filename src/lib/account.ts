@@ -178,11 +178,12 @@ export async function recordAudit(
   entityId?: string,
   metadata: Record<string, unknown> = {},
 ) {
-  const { error } = await supabase.rpc('record_audit', {
-    p_event: event,
-    p_entity: entity,
-    p_entity_id: entityId ?? null,
-    p_metadata: metadata,
+  const { error } = await supabase.from('audit_events').insert({
+    user_id: _userId,
+    event,
+    entity,
+    entity_id: entityId ?? null,
+    metadata,
   });
   if (error) throw error;
 }
