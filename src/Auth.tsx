@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './account-opening.css';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import {
@@ -106,9 +106,42 @@ export default function Auth({onBack,onSuccess,initialMode='signup',demoMode=fal
   const [cities,setCities]=useState<string[]>([]);
   const [geoLoading,setGeoLoading]=useState(false);
   const [cityLoading,setCityLoading]=useState(false);
+  const draftHydratedEmail=useRef('');
+  const draftTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const draftKey=(value:string)=>`paywai_onboarding_draft_${value.trim().toLowerCase()}`;
   const formatDob=(iso:string)=>{if(!iso)return '';const [y,m,d]=iso.split('-');return y&&m&&d?d+'/'+m+'/'+y:''};
   const handleDob=(value:string)=>{const digits=value.replace(/\D/g,'').slice(0,8);let out=digits.slice(0,2);if(digits.length>2)out+='/'+digits.slice(2,4);if(digits.length>4)out+='/'+digits.slice(4,8);setDobInput(out);if(/^\d{2}\/\d{2}\/\d{4}$/.test(out)){const [d,m,y]=out.split('/');setDob(y+'-'+m+'-'+d)}else setDob('')};
   const passwordProblems=useMemo(()=>passwordIssues(password),[password]);
+  // Restore unsent onboarding fields after refresh/crash. Authentication secrets and OTPs are never stored.
+  useEffect(()=>{
+    const keyEmail=email.trim().toLowerCase();
+    if(!keyEmail||mode!=='signup'||demoMode)return;
+    if(draftHydratedEmail.current===keyEmail)return;
+    draftHydratedEmail.current=keyEmail;
+    try{
+      const raw=window.localStorage.getItem(draftKey(keyEmail));
+      if(!raw)return;
+      const d=JSON.parse(raw);
+      if(typeof d.firstName==='string')setFirstName(d.firstName); if(typeof d.middleName==='string')setMiddleName(d.middleName); if(typeof d.lastName==='string')setLastName(d.lastName);
+      if(typeof d.phone==='string')setPhone(d.phone); if(typeof d.dob==='string')setDob(d.dob); if(typeof d.dobInput==='string')setDobInput(d.dobInput);
+      if(typeof d.gender==='string')setGender(d.gender); if(typeof d.maritalStatus==='string')setMaritalStatus(d.maritalStatus); if(typeof d.occupation==='string')setOccupation(d.occupation); if(typeof d.employer==='string')setEmployer(d.employer);
+      if(typeof d.residenceCountry==='string')setResidenceCountry(d.residenceCountry); if(typeof d.documentType==='string')setDocumentType(d.documentType); if(typeof d.documentNumber==='string')setDocumentNumber(d.documentNumber); if(typeof d.documentCountry==='string')setDocumentCountry(d.documentCountry);
+      if(typeof d.address==='string')setAddress(d.address); if(typeof d.city==='string')setCity(d.city); if(typeof d.region==='string')setRegion(d.region); if(typeof d.postal==='string')setPostal(d.postal); if(typeof d.taxResidence==='string')setTaxResidence(d.taxResidence);
+      if(typeof d.employmentStatus==='string')setEmploymentStatus(d.employmentStatus); if(typeof d.sourceOfFunds==='string')setSourceOfFunds(d.sourceOfFunds); if(typeof d.expectedMonthlyVolume==='string')setExpectedMonthlyVolume(d.expectedMonthlyVolume);
+      if(typeof d.bankCountry==='string')setBankCountry(d.bankCountry); if(typeof d.bankName==='string')setBankName(d.bankName); if(typeof d.bankAccountHolder==='string')setBankAccountHolder(d.bankAccountHolder); if(typeof d.bankAccountNumber==='string')setBankAccountNumber(d.bankAccountNumber); if(typeof d.bankIban==='string')setBankIban(d.bankIban); if(typeof d.bankSwiftBic==='string')setBankSwiftBic(d.bankSwiftBic);
+    }catch{window.localStorage.removeItem(draftKey(keyEmail))}
+  },[email,mode,demoMode]);
+
+  useEffect(()=>{
+    const keyEmail=email.trim().toLowerCase();
+    if(!keyEmail||mode!=='signup'||demoMode||!draftHydratedEmail.current)return;
+    if(draftTimer.current)clearTimeout(draftTimer.current);
+    draftTimer.current=setTimeout(()=>{
+      try{window.localStorage.setItem(draftKey(keyEmail),JSON.stringify({firstName,middleName,lastName,phone,dob,dobInput,gender,maritalStatus,occupation,employer,residenceCountry,documentType,documentNumber,documentCountry,address,city,region,postal,taxResidence,employmentStatus,sourceOfFunds,expectedMonthlyVolume,bankCountry,bankName,bankAccountHolder,bankAccountNumber,bankIban,bankSwiftBic}))}catch{}
+    },250);
+    return()=>{if(draftTimer.current)clearTimeout(draftTimer.current)};
+  },[email,mode,demoMode,firstName,middleName,lastName,phone,dob,dobInput,gender,maritalStatus,occupation,employer,residenceCountry,documentType,documentNumber,documentCountry,address,city,region,postal,taxResidence,employmentStatus,sourceOfFunds,expectedMonthlyVolume,bankCountry,bankName,bankAccountHolder,bankAccountNumber,bankIban,bankSwiftBic]);
+
 
   useEffect(()=>{if(demoMode){setEmail('TEST');setPassword('TEST');setPassword2('TEST');setEmailCode('TEST');setAuthCode('TEST');setFullName('TEST');setPhone('TEST');setLegalName('TEST');setDob('2000-01-01');setNationality('TEST');setOccupation('TEST');setDocumentType('TEST');setDocumentNumber('TEST');setDocumentCountry('TEST');setAddress('TEST');setCity('TEST');setRegion('TEST');setPostal('TEST');setTaxResidence('TEST');setMfaCode('TEST');setStep(1);return;} void (async()=>{const {data}=await supabase.auth.getSession();if(data.session?.user){const user=data.session.user;setUserId(user.id);setEmail(user.email??'');const profile=await loadProfile(user.id).catch(()=>null);const kyc=await loadKyc(user.id).catch(()=>null);if(kyc){setDob(kyc.date_of_birth??'');setDobInput(kyc.date_of_birth?formatDob(kyc.date_of_birth):'');setNationality(kyc.nationality??'Bangladesh');setOccupation(kyc.occupation??'');setLegalName(kyc.legal_name??'');setAddress(kyc.address_line1??'');setCity(kyc.city??'');setRegion(kyc.region??'');setPostal(kyc.postal_code??'');setTaxResidence(kyc.tax_residence??'');setResidenceCountry(kyc.tax_residence??profile?.country??'Bangladesh');setDocumentType(kyc.document_type??'National ID');setDocumentNumber(kyc.document_number??'');setDocumentCountry(kyc.document_country??'Bangladesh');setFirstName(kyc.first_name??'');setMiddleName(kyc.middle_name??'');setLastName(kyc.last_name??'');setPlaceOfBirth(kyc.place_of_birth??'');setCountryOfBirth(kyc.country_of_birth??kyc.nationality??'Bangladesh');setSecondaryNationality(kyc.secondary_nationality??'');setGender(kyc.gender??'');setMaritalStatus(kyc.marital_status??'');setEmployer(kyc.employer??'');setEmploymentStatus(kyc.employment_status??'');setSourceOfFunds(kyc.source_of_funds??'');setExpectedMonthlyVolume(kyc.expected_monthly_volume??'');setBankCountry(kyc.bank_country??'Bangladesh');setBankName(kyc.bank_name??'');setBankAccountHolder(kyc.bank_account_holder??'');setBankAccountNumber(kyc.bank_account_number??'');setBankIban(kyc.bank_iban??'');setBankSwiftBic(kyc.bank_swift_bic??'');}const pendingLocal=window.localStorage.getItem('paywai_google_signup')==='1';const providerGoogle=(user.app_metadata?.providers??[]).includes('google');const googleFlow=pendingLocal||user.user_metadata?.paywai_signup_method==='google'||providerGoogle;if(pendingLocal)window.localStorage.removeItem('paywai_google_signup');if(googleFlow){const resumeStep=(profile?.onboarding_step??2) as SignupStep;if(resumeStep>=7){onSuccess();return}setGoogleSignup(true);const name=user.user_metadata?.full_name??user.user_metadata?.name??'';if(name){const parts=name.trim().split(/\\s+/);setFirstName(parts[0]??'');setLastName(parts.length>1?parts[parts.length-1]:'');setMiddleName(parts.length>2?parts.slice(1,-1).join(' '):'');setFullName(name);setLegalName(name);}setStep(resumeStep<2?2:resumeStep);if(!profile||resumeStep<2)await saveProfile(user.id,{onboarding_step:2});if(user.user_metadata?.paywai_signup_method!=='google')await supabase.auth.updateUser({data:{paywai_signup_method:'google'}}).catch(()=>undefined);}}})().catch(()=>undefined);},[]);
 
