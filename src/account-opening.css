@@ -131,3 +131,5 @@
 }
 
 .phone-field{display:grid;grid-template-columns:auto 1fr;align-items:stretch}.phone-prefix{display:flex;align-items:center;padding:0 14px;border:1px solid rgba(255,255,255,.12);border-right:0;border-radius:10px 0 0 10px;color:inherit;white-space:nowrap;background:rgba(255,255,255,.04)}.phone-field input{border-radius:0 10px 10px 0!important}.phone-prefix+input:focus{outline:none}
+
+.phone-field{display:flex;align-items:stretch;width:100%}.phone-code{display:flex;align-items:center;padding:0 14px;border:1px solid #d9e5df;border-right:0;border-radius:10px 0 0 10px;background:#f5faf7;color:#315446;font-weight:600;white-space:nowrap}.phone-field input{border-radius:0 10px 10px 0!important;flex:1;min-width:0}.phone-field:focus-within .phone-code{border-color:#1a9d68;}
