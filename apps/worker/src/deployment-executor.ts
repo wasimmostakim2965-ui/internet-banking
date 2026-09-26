@@ -89,12 +89,42 @@ export interface DeploymentExecutionWrites {
     readonly provider: string;
     readonly providerResourceId: string;
   }): Promise<unknown>;
+  /**
+   * The deployment row this job advances, read on the service role.
+   *
+   * A deploy the engine accepted but has not finished is requeued by the
+   * processor, so a job can run more than once for one request. This is how a
+   * re-execution sees that it already asked the engine to build and must poll
+   * that build rather than start a second one. Service-scoped like every other
+   * worker read: there is no session, so `organization_id` is the boundary.
+   * Optional so a test that pins the first attempt need not model a resume; an
+   * absent port means "no prior attempt is known", never a resumed success.
+   */
+  getDeploymentForService?(
+    organizationId: OrganizationId,
+    deploymentId: string,
+  ): Promise<StoredDeploymentHandle | null>;
+}
+
+/**
+ * The parts of a deployment row a re-execution needs.
+ *
+ * Deliberately narrow: the engine's own handles and the state they were last
+ * written with. Nothing about the request, the tenant's name, or a URL is here,
+ * because the resume path only needs to know whether a build is already running.
+ */
+export interface StoredDeploymentHandle {
+  readonly status: EngineStatus;
+  readonly providerResourceId: string | null;
+  readonly deploymentResourceId: string | null;
 }
 
 export interface ExecuteDeploymentInput {
   readonly organizationId: OrganizationId;
   readonly projectId: string;
   readonly projectSlug: string;
+  /** The deployment row this job advances; the resume path reads it back. */
+  readonly deploymentId: string;
   readonly idempotencyKey: string;
   readonly action: "create" | "rollback";
   readonly gitRepository: string | null;
@@ -218,6 +248,15 @@ export async function executeDeployment(
   // The engine is chosen once, by execution model, through the shared router.
   const engine = deploymentEngineFor(deps.engines, executionModel);
 
+  // A deploy the engine accepted but has not finished is requeued by the
+  // processor, so one request can run this handler more than once. The first
+  // attempt already asked the engine to build and stored the engine's own
+  // *deployment* handle. A second `deploy` (or `rollback`) call would start a
+  // second build for the same request, so a re-execution polls the build it
+  // already started and reports that state instead.
+  const resumed = await resumeRunningDeployment(deps, engine, input, adapterCtx, application);
+  if (resumed) return resumed;
+
   if (input.action === "rollback") {
     return rollback(deps, engine, input, adapterCtx, application);
   }
@@ -308,6 +347,77 @@ export async function executeDeployment(
   const deployed = await engine.deploy(adapterCtx, application, artifact);
   return confirm(deps, engine, adapterCtx, deployed, application.resourceId);
 }
+/**
+ * Resume a deploy the engine already accepted but has not finished.
+ *
+ * The processor requeues a job whose handler reported `running`, which is the
+ * honest state of a build the engine is still working on. Re-running the whole
+ * handler would ask the engine to build a *second* time for the same request —
+ * an extra deployment per requeue, and an extra billed build. The row already
+ * carries the engine's own deployment handle, so this reads that build's state
+ * back and returns it without issuing another deploy.
+ *
+ * Returns null when there is nothing to resume, so the caller runs the ordinary
+ * create/rollback path:
+ *   * no stored read port (a test that pins only the first attempt),
+ *   * no row, or a row with no engine deployment handle yet (the first attempt
+ *     never reached `deploy`),
+ *   * a row in a terminal state (a prior attempt finished; nothing is in flight).
+ *
+ * A *new* request is not mistaken for a resume: it is a different deployment
+ * row with its own id, so this reads that row and finds no in-flight handle.
+ */
+async function resumeRunningDeployment(
+  deps: DeploymentExecutorDeps,
+  engine: DeploymentEngine,
+  input: ExecuteDeploymentInput,
+  adapterCtx: { organizationId: OrganizationId; idempotencyKey: string; timeoutMs: number },
+  application: ProviderRef | null,
+): Promise<DeploymentExecutionResult | null> {
+  const read = deps.writes.getDeploymentForService;
+  if (typeof read !== "function") return null;
+
+  const stored = await read(input.organizationId, input.deploymentId);
+  if (!stored) return null;
+  // The engine's handle for a *deployment* is what addresses an in-flight
+  // build. A row without one never got past `ensureTarget`, so there is no
+  // build to poll and the ordinary path must run.
+  const handle = stored.deploymentResourceId;
+  if (handle === null) return null;
+  // A terminal row is finished; a requeued job for one is a stale redelivery
+  // and must not re-deploy. Only `running` (and a handle) means "in flight".
+  if (stored.status !== "running") return null;
+
+  const ref: ProviderRef = {
+    organizationId: input.organizationId,
+    provider: (application?.provider ?? "coolify") as ProviderRef["provider"],
+    resourceType: "deployment",
+    resourceId: handle,
+  };
+  const state = await engine.getDeployment(adapterCtx, ref);
+  if (!state.ok) {
+    // The engine could not be asked. Report its own reason rather than a
+    // fabricated state; the processor decides whether to retry.
+    return {
+      status: state.status,
+      url: null,
+      providerResourceId: stored.providerResourceId,
+      deploymentResourceId: handle,
+      reason: state.reason,
+    };
+  }
+  // The engine's answer is the truth: it may now be finished, still running, or
+  // failed. Reporting its status is what lets the processor complete the job
+  // when the build finally succeeds, and requeue it again while it still runs.
+  return {
+    status: state.value.status,
+    url: state.value.url,
+    providerResourceId: stored.providerResourceId,
+    deploymentResourceId: handle,
+    reason: null,
+  };
+}
+
 async function rollback(
   deps: DeploymentExecutorDeps,
   engine: DeploymentEngine,

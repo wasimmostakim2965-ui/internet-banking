@@ -87,6 +87,18 @@ export function buildWorkerWiring(
       store.getPreviewTargetForService(organizationId, projectId, previewKey),
     setPreviewTargetProvider: (input: Parameters<typeof store.setPreviewTargetProvider>[0]) =>
       store.setPreviewTargetProvider(input),
+    // The resume read: a requeued deploy learns from its own row whether a build
+    // is already in flight, so it polls that build instead of starting another.
+    getDeploymentForService: async (organizationId: string, deploymentId: string) => {
+      const found = await store.getDeploymentForService(organizationId, deploymentId);
+      return found
+        ? {
+            status: found.status,
+            providerResourceId: found.providerResourceId,
+            deploymentResourceId: found.deploymentResourceId,
+          }
+        : null;
+    },
   };
   const deploymentOutcome = {
     updateDeploymentStatus: (input: Parameters<typeof store.updateDeploymentStatus>[0]) =>

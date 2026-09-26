@@ -89,6 +89,7 @@ export function buildDeploymentJobHandler(deps: DeploymentJobDeps): JobHandler {
         organizationId: input.organizationId,
         projectId: input.projectId,
         projectSlug: input.projectSlug,
+        deploymentId: input.deploymentId,
         idempotencyKey: ctx.idempotencyKey,
         action: input.action,
         gitRepository: input.gitRepository,
@@ -103,7 +104,19 @@ export function buildDeploymentJobHandler(deps: DeploymentJobDeps): JobHandler {
       },
     );
 
-    if (result.status === "succeeded" && result.reason === null) {
+    // A success carries the executor's result as `value`, so the applier can
+    // persist the engine's own url and provider reference rather than
+    // re-deriving them. A *non-terminal* result — the engine accepted the build
+    // and is still working on it — is carried as `ok` too, so the applier
+    // persists the engine's own deployment handle. Without that handle a
+    // requeued attempt could not poll the build it already started and would
+    // start a second one (see `resumeRunningDeployment`). The processor still
+    // requeues it: it only completes on `succeeded`. A terminal failure is an
+    // `err` carrying the engine's own reason.
+    if (
+      result.reason === null &&
+      (result.status === "succeeded" || result.status === "running" || result.status === "pending")
+    ) {
       return ok<DeploymentExecutionResult>(result.status, result);
     }
     return err(result.status, result.reason ?? `Deployment ended ${result.status}.`);

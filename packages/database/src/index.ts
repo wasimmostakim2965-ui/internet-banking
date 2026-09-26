@@ -222,6 +222,18 @@ export interface ControlPlaneWrites {
    */
   updateDeploymentStatus(input: DeploymentStatusInput): Promise<Deployment | null>;
   /**
+   * A deployment by id, scoped by organization only.
+   *
+   * For the worker, which has no session: a requeued deploy job re-reads its own
+   * row to learn whether a build is already in flight, so it polls that build
+   * instead of starting a second one. `organization_id` in the where clause is
+   * the tenant boundary, so a deployment id from another tenant is null.
+   */
+  getDeploymentForService(
+    organizationId: OrganizationId,
+    deploymentId: DeploymentId,
+  ): Promise<Deployment | null>;
+  /**
    * Remember the hosting engine's application for a project.
    *
    * The first deployment creates the engine-side application; without persisting

@@ -1156,6 +1156,19 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return row ? toDeployment(row) : null;
     },
 
+    async getDeploymentForService(
+      organizationId: OrganizationId,
+      deploymentId: DeploymentId,
+    ): Promise<Deployment | null> {
+      const found = await rows("getDeploymentForService", {
+        method: "GET",
+        // No session: `organization_id` is the whole tenant boundary.
+        path: `/deployments?select=*&organization_id=eq.${q(organizationId)}&id=eq.${q(deploymentId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toDeployment(row) : null;
+    },
+
     /**
      * Advance a deployment's state.
      *
