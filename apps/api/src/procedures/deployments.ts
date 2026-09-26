@@ -296,6 +296,15 @@ export interface CreateDeploymentInput {
    * engine succeeded.
    */
   readonly kind?: "production" | "preview" | undefined;
+  /**
+   * Build this production deployment without making it live (Vercel's
+   * `--skip-domain`).
+   *
+   * The worker skips the auto-promote, so the build settles `succeeded` and
+   * not-current until `deployments.promote` moves the pointer. It is refused on
+   * a preview, where "live" has no meaning — a preview always has its own URL.
+   */
+  readonly staged?: boolean | undefined;
   /** The pull request a preview build came from, when it came from one. */
   readonly pullRequest?: number | undefined;
 }
@@ -412,6 +421,9 @@ export async function redeployDeployment(
     ...(source.buildPack ? { buildPack: source.buildPack as BuildPack } : {}),
     ...(source.rootDirectory ? { rootDirectory: source.rootDirectory } : {}),
     kind: source.kind,
+    // A redeploy repeats what the row was: a staged build stays staged, so the
+    // replay does not silently make a release live that was deliberately held.
+    ...(source.staged ? { staged: true } : {}),
     ...(source.pullRequest !== null ? { pullRequest: source.pullRequest } : {}),
   });
 }
@@ -780,6 +792,17 @@ export async function requestDeployment(
       : null;
   const previewKey = kind === "preview" ? previewKeyFor(pullRequest, gitBranch, commit) : null;
 
+  // A staged build is a production build that is not made live. Staging a
+  // preview is meaningless — a preview is never live — so it is refused rather
+  // than silently accepted and ignored.
+  if (input.staged === true && kind !== "production") {
+    throw new ApiError(
+      "invalid_input",
+      "Only a production deployment can be staged; a preview always has its own URL.",
+    );
+  }
+  const staged = kind === "production" && input.staged === true;
+
   const idempotencyKey = normaliseIdempotencyKey(input.idempotencyKey, deps.newId);
   const existing = await store.findDeploymentByIdempotencyKey(
     ctx.principal.userId,
@@ -818,6 +841,7 @@ export async function requestDeployment(
     url: null,
     failureReason: null,
     kind,
+    staged,
     gitBranch,
     gitCommit: commit,
     pullRequest,
@@ -858,6 +882,7 @@ export async function requestDeployment(
       rootDirectory,
       commit,
       kind,
+      staged,
       previewKey,
     };
     await deps.queue.enqueue({
@@ -1042,8 +1067,9 @@ export async function requestDeployment(
 
   // A production build the engine confirmed is live immediately — the same move
   // `deployments.promote` makes, so the synchronous and durable paths agree. A
-  // preview is never promoted.
-  if (nextStatus === "succeeded" && kind === "production") {
+  // preview is never promoted, and a *staged* production build is deliberately
+  // held back (`--skip-domain`) until someone promotes it.
+  if (nextStatus === "succeeded" && kind === "production" && !staged) {
     const promote = (deps.store as Partial<ControlPlaneWrites>).promoteDeployment;
     if (typeof promote === "function") {
       await promote({
@@ -1156,6 +1182,9 @@ export async function rollbackDeployment(
       commit,
       // A rollback targets the production application, never a preview.
       kind: "production",
+      // A rollback is the opposite of staging: it returns the live pointer to a
+      // revision, so it always takes effect.
+      staged: false,
       previewKey: null,
     };
     await deps.queue.enqueue({

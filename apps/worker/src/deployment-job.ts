@@ -163,7 +163,12 @@ export function buildDeploymentApplier(
       // reported by `deployments.rollback`'s read model, not by failing a
       // deployment that genuinely built.
       if (finalStatus === "succeeded") {
-        if ((payload.kind ?? "production") === "production") {
+        // A staged production build is deliberately *not* made live: that is
+        // what `--skip-domain` means, and it is the whole point of staging —
+        // produce the release, inspect it, promote it in one click later. A
+        // preview is never promoted either: its own URL is the point.
+        const staged = payload.staged === true;
+        if ((payload.kind ?? "production") === "production" && !staged) {
           await deps.outcome.promoteDeployment({
             organizationId: payload.organizationId,
             projectId: payload.projectId,

@@ -845,6 +845,7 @@ describe("requesting and rolling back a deployment", () => {
       url: string | null;
       failureReason: string | null;
       kind: "production" | "preview";
+      staged?: boolean;
       isCurrent: boolean;
       gitBranch: string | null;
       gitCommit: string | null;
@@ -858,6 +859,7 @@ describe("requesting and rolling back a deployment", () => {
         url: "https://web-app.example.test",
         failureReason: null,
         kind: "production",
+        staged: false,
         isCurrent: true,
         gitBranch: "main",
         gitCommit: null,
@@ -881,6 +883,7 @@ describe("requesting and rolling back a deployment", () => {
       }
       if (procedure === "deployments.create") {
         counter += 1;
+        const body = input as { staged?: boolean; kind?: string };
         const deployment = {
           id: `d-new-${counter}`,
           projectId: "p-1",
@@ -889,6 +892,7 @@ describe("requesting and rolling back a deployment", () => {
           url: null,
           failureReason: "Coolify is not configured in this deployment.",
           kind: "production" as const,
+          staged: body.staged === true,
           isCurrent: false,
           gitBranch: null,
           gitCommit: null,
@@ -1062,6 +1066,68 @@ describe("requesting and rolling back a deployment", () => {
 
     const create = calls.find((c) => c.procedure === "deployments.create");
     expect(create?.input).toMatchObject({ buildPack: "dockerfile" });
+  });
+
+  it("stages a release without making it live, and marks the row staged", async () => {
+    const { responder, calls, deployments } = deploymentPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "New deployment" }));
+    await user.type(await screen.findByPlaceholderText("main"), "main");
+    // Vercel's `--skip-domain`: the build is produced but not promoted.
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "Stage this deployment without making it live",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    const create = calls.find((c) => c.procedure === "deployments.create");
+    expect(create?.input).toMatchObject({ projectId: "p-1", staged: true });
+    // The row is recorded staged, so the list can tell it apart from a live one.
+    expect(deployments.find((d) => d.id === "d-new-1")?.staged).toBe(true);
+  });
+
+  it("leaves the staged flag off a normal deploy", async () => {
+    const { responder, calls } = deploymentPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "New deployment" }));
+    await user.type(await screen.findByPlaceholderText("main"), "main");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    const create = calls.find((c) => c.procedure === "deployments.create");
+    expect(create?.input).not.toHaveProperty("staged");
+  });
+
+  it("labels a staged production row so it is not mistaken for live", async () => {
+    const { responder, deployments } = deploymentPlane();
+    // A release that was produced and held: succeeded, not current, staged.
+    deployments.push({
+      id: "d-staged",
+      projectId: "p-1",
+      status: "succeeded",
+      url: "https://staged.example.test",
+      failureReason: null,
+      kind: "production",
+      staged: true,
+      isCurrent: false,
+      gitBranch: "main",
+      gitCommit: null,
+      pullRequest: null,
+    });
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    // The Type column distinguishes a held release from an ordinary one, so an
+    // operator can see at a glance which build is waiting for a promote.
+    expect(await screen.findByText("Production · staged")).toBeTruthy();
+    expect(screen.getAllByText("Production").length).toBeGreaterThan(0);
   });
 
   it("sends an idempotency key and reuses it on a retry, so a double press cannot deploy twice", async () => {

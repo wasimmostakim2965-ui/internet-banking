@@ -337,6 +337,9 @@ export async function deployFromDelivery(
     rootDirectory: project.rootDirectory,
     commit: delivery.commit,
     kind,
+    // A push deploys the way the button does: it goes live on success. Staging
+    // is a deliberate human step (`deployments.create` with `staged`).
+    staged: false,
     previewKey,
   };
   await deps.queue.enqueue({

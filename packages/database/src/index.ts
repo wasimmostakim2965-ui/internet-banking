@@ -684,6 +684,13 @@ export interface DeploymentCreateInput {
   readonly failureReason: string | null;
   /** Defaults to `production` in the column, so an older caller is unchanged. */
   readonly kind?: "production" | "preview";
+  /**
+   * True when this production build is staged: built but not made live.
+   *
+   * Vercel's `--skip-domain`. The worker skips the auto-promote, so the row is
+   * `succeeded` and not-current until a promote moves the pointer.
+   */
+  readonly staged?: boolean;
   readonly gitBranch?: string | null;
   readonly gitCommit?: string | null;
   readonly pullRequest?: number | null;
@@ -1461,6 +1468,13 @@ export interface Deployment {
    * "Preview" beside a build without inventing a second table.
    */
   readonly kind: "production" | "preview";
+  /**
+   * Whether this production deployment was built without being made live.
+   *
+   * Vercel's `--skip-domain`. True means the worker skipped the auto-promote, so
+   * the build is `succeeded` and not-current until someone promotes it.
+   */
+  readonly staged: boolean;
   readonly gitBranch: string | null;
   readonly gitCommit: string | null;
   readonly pullRequest: number | null;

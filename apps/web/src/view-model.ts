@@ -51,6 +51,11 @@ export interface DeploymentSummary {
   /** `production` builds the project's domains; `preview` gets its own URL. */
   readonly kind: "production" | "preview";
   /**
+   * Whether this production build was staged: built without being made live
+   * (Vercel's `--skip-domain`), so it waits for a promote.
+   */
+  readonly staged: boolean;
+  /**
    * Whether this is the deployment the project's domains currently serve.
    *
    * Vercel's model: a deployment is immutable, and "live" is a pointer to one of

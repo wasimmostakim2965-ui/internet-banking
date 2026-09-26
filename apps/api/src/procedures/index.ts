@@ -741,6 +741,7 @@ export const ROUTE_SHAPES = {
     buildPack: "BuildPack?",
     rootDirectory: "string?",
     kind: "string?",
+    staged: "boolean?",
     pullRequest: "number?",
   },
   "deployments.rollback": {

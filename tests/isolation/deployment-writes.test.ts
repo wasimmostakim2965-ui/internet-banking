@@ -240,6 +240,7 @@ function makeStore() {
       url: string | null;
       failureReason: string | null;
       kind?: "production" | "preview";
+      staged?: boolean;
       gitBranch?: string | null;
       gitCommit?: string | null;
       pullRequest?: number | null;
@@ -254,6 +255,7 @@ function makeStore() {
         status: input.status,
         url: input.url,
         kind: input.kind ?? "production",
+        staged: input.staged ?? false,
         gitBranch: input.gitBranch ?? null,
         gitCommit: input.gitCommit ?? null,
         pullRequest: input.pullRequest ?? null,
@@ -1243,6 +1245,101 @@ describe("deployments.promote — the production pointer", () => {
     });
     expect(res.ok).toBe(false);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("staged production deployments (Vercel --skip-domain)", () => {
+  it("builds a staged release without making it live, then promotes it", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "stage-1", gitBranch: "main", staged: true },
+    });
+
+    expect(res.ok).toBe(true);
+    const deployment = (res.data as { deployment: Deployment }).deployment;
+    // The engine confirmed the build, but staging means it is *not* live: the
+    // whole point is to inspect a release before it serves traffic.
+    expect(deployment.status).toBe("succeeded");
+    expect(deployment.staged).toBe(true);
+    expect(deployment.isCurrent).toBe(false);
+    expect(deployments.every((d) => !d.isCurrent)).toBe(true);
+
+    // The release is promotable — the pointer is the only thing missing.
+    const promoted = await router.route({
+      procedure: "deployments.promote",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: deployment.id },
+    });
+    expect(promoted.ok).toBe(true);
+    expect((promoted.data as { deployment: Deployment }).deployment.isCurrent).toBe(true);
+  });
+
+  it("makes a normal production deployment live without the staged flag", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "live-1", gitBranch: "main" },
+    });
+
+    expect(res.ok).toBe(true);
+    const deployment = (res.data as { deployment: Deployment }).deployment;
+    expect(deployment.staged).toBe(false);
+    expect(deployments.find((d) => d.id === deployment.id)?.isCurrent).toBe(true);
+  });
+
+  it("refuses to stage a preview, where 'live' has no meaning", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "stage-preview",
+        gitBranch: "feature-x",
+        kind: "preview",
+        staged: true,
+      },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    expect(res.error?.code).toBe("invalid_input");
+    // Nothing was written: a refused request must not leave a row behind.
+    expect(deployments).toHaveLength(0);
+  });
+
+  it("keeps a redeployed staged row staged, so a replay cannot publish it", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const first = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "stage-2", gitBranch: "main", staged: true },
+    });
+    const stagedId = (first.data as { deployment: Deployment }).deployment.id;
+
+    const replay = await router.route({
+      procedure: "deployments.redeploy",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: stagedId },
+    });
+
+    expect(replay.ok).toBe(true);
+    const replayed = (replay.data as { deployment: Deployment }).deployment;
+    expect(replayed.id).not.toBe(stagedId);
+    expect(replayed.staged).toBe(true);
+    expect(replayed.isCurrent).toBe(false);
+    expect(deployments.every((d) => !d.isCurrent)).toBe(true);
   });
 });
 

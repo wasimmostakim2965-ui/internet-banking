@@ -37,6 +37,12 @@ export interface DeploymentJobPayload {
    */
   readonly kind: "production" | "preview";
   /**
+   * True when this production build is staged (Vercel `--skip-domain`): the
+   * worker builds and records it but does not move the production pointer, so
+   * the release can be inspected and promoted in one click later.
+   */
+  readonly staged: boolean;
+  /**
    * A stable key for a preview target — `pr-42` or `branch-feature-x` — so the
    * same branch reuses its application across pushes instead of creating a new
    * one per delivery. Null for a production deployment.

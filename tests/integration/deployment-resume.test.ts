@@ -137,6 +137,7 @@ const payload: DeploymentJobPayload = {
   buildPack: null,
   commit: null,
   kind: "production",
+  staged: false,
   previewKey: null,
 };
 
@@ -247,5 +248,63 @@ describe("a requeued deploy polls its in-flight build instead of rebuilding", ()
     expect(result.status).toBe("running");
     expect(result.ok).toBe(true);
     expect(row.status).toBe("pending");
+  });
+});
+
+describe("a staged production build is not made live by the worker", () => {
+  /**
+   * An engine that settles immediately: `deploy` accepts and the first read
+   * reports the build done. `fakeHosting`'s read-back is keyed by application, so
+   * its deployment read is `pending`; this one answers the way a real engine
+   * does when the build has finished.
+   */
+  function succeedingHosting(): HostingAdapter {
+    const { hosting } = runningThenSucceeded();
+    return {
+      ...hosting,
+      async getDeployment(_ctx, ref) {
+        return ok("succeeded", { ref, status: "succeeded", url: "https://alpha.test" });
+      },
+    };
+  }
+
+  it("skips the auto-promote when the payload is staged", async () => {
+    const engines = enginesWith(succeedingHosting());
+    const { writes } = makeRow();
+    let promoted = 0;
+    const outcome = {
+      updateDeploymentStatus: async () => ({}),
+      promoteDeployment: async () => {
+        promoted += 1;
+        return {};
+      },
+      recordUsage: async () => ({}),
+    };
+
+    const apply = buildDeploymentApplier({ engines, writes, outcome });
+    const stagedJob = { ...job, payload: { ...payload, staged: true } };
+    await apply(stagedJob, ok("succeeded", { status: "succeeded", url: "https://alpha.test" }));
+    // The build genuinely succeeded, yet the live pointer must not move: that is
+    // exactly what `--skip-domain` means, and it is the one thing staging exists
+    // to guarantee.
+    expect(promoted).toBe(0);
+  });
+
+  it("still promotes an ordinary production build", async () => {
+    const engines = enginesWith(succeedingHosting());
+    const { writes } = makeRow();
+    let promoted = 0;
+    const outcome = {
+      updateDeploymentStatus: async () => ({}),
+      promoteDeployment: async () => {
+        promoted += 1;
+        return {};
+      },
+      recordUsage: async () => ({}),
+    };
+
+    const apply = buildDeploymentApplier({ engines, writes, outcome });
+    await apply(job, ok("succeeded", { status: "succeeded", url: "https://alpha.test" }));
+    expect(promoted).toBe(1);
   });
 });

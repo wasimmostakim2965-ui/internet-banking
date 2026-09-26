@@ -140,6 +140,11 @@ function DeploymentColumns(): readonly Column<DeploymentSummary>[] {
             label={item.pullRequest ? `Preview · PR #${String(item.pullRequest)}` : "Preview"}
             tone="neutral"
           />
+        ) : item.staged ? (
+          // A staged production build is not live and is not a preview: it is a
+          // release that was produced and held, so the Type column says which
+          // rather than leaving it looking like an ordinary production row.
+          <StatusBadge label="Production · staged" tone="warning" />
         ) : (
           <StatusBadge label="Production" tone="neutral" />
         ),
@@ -1244,6 +1249,9 @@ function NewDeploymentModal({
   // Empty means "let the engine decide": the server omits the field rather than
   // sending a default, so a project that pins its own build pack keeps it.
   const [buildPack, setBuildPack] = useState<"" | BuildPack>("");
+  // Vercel's `--skip-domain`: build the release without making it live, so it
+  // can be inspected and promoted in one click afterwards.
+  const [staged, setStaged] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DeploymentRequestSummary | null>(null);
@@ -1278,6 +1286,7 @@ function NewDeploymentModal({
     setGitBranch("");
     setCommit("");
     setBuildPack("");
+    setStaged(false);
     setError(null);
     setResult(null);
   };
@@ -1292,6 +1301,7 @@ function NewDeploymentModal({
       ...(gitBranch ? { gitBranch } : {}),
       ...(commit ? { commit } : {}),
       ...(buildPack ? { buildPack } : {}),
+      ...(staged ? { staged: true } : {}),
     });
     setBusy(false);
     if (!response.ok || !response.data) {
@@ -1437,6 +1447,18 @@ function NewDeploymentModal({
               />
             )}
           </Field>
+          <label className="row small">
+            <input
+              type="checkbox"
+              aria-label="Stage this deployment without making it live"
+              checked={staged}
+              onChange={(event) => setStaged(event.target.checked)}
+            />
+            <span>
+              Stage this release: build it as a production deployment but do not make it live. The
+              build settles succeeded and waits for you to promote it from the Deployments page.
+            </span>
+          </label>
           {error ? (
             <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
               {error}
