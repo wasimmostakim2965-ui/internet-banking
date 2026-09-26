@@ -330,6 +330,7 @@ export function buildProcedures(
             name: string;
             slug: string;
             executionModel?: ExecutionModel;
+            rootDirectory?: string;
           }>(input),
         ),
     },
@@ -344,6 +345,7 @@ export function buildProcedures(
             name?: string;
             slug?: string;
             executionModel?: ExecutionModel;
+            rootDirectory?: string | null;
           }>(input),
         ),
     },
@@ -720,12 +722,14 @@ export const ROUTE_SHAPES = {
     name: "string",
     slug: "string",
     executionModel: "string?",
+    rootDirectory: "string?",
   },
   "projects.update": {
     projectId: "ProjectId",
     name: "string?",
     slug: "string?",
     executionModel: "string?",
+    rootDirectory: "string?",
   },
   "deployments.list": { projectId: "ProjectId" },
   "deployments.create": {
@@ -735,6 +739,7 @@ export const ROUTE_SHAPES = {
     gitBranch: "string?",
     commit: "string?",
     buildPack: "BuildPack?",
+    rootDirectory: "string?",
     kind: "string?",
     pullRequest: "number?",
   },

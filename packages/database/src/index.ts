@@ -131,6 +131,8 @@ export interface DataStore {
     createdBy: UserId;
     /** Defaults to `container` when omitted, the historical behaviour. */
     executionModel?: ExecutionModel;
+    /** The monorepo subdirectory to build from; null is the repository root. */
+    rootDirectory?: string | null;
   }): Promise<Project>;
   listDeployments(userId: UserId, projectId: ProjectId): Promise<readonly Deployment[]>;
   listAuditEvents(userId: UserId, organizationId: OrganizationId): Promise<readonly AuditEvent[]>;
@@ -695,6 +697,8 @@ export interface DeploymentCreateInput {
   readonly gitRepository?: string | null;
   /** The build pack requested, so a redeploy does not fall back to the default. */
   readonly buildPack?: string | null;
+  /** The monorepo subdirectory built, so a redeploy repeats it. */
+  readonly rootDirectory?: string | null;
 }
 
 /**
@@ -871,6 +875,12 @@ export interface ProjectUpdateInput {
   readonly slug?: string | undefined;
   /** Switch the project's execution model. Customer's own choice, so writable. */
   readonly executionModel?: ExecutionModel | undefined;
+  /**
+   * The monorepo subdirectory to build from, or null to clear it back to the
+   * repository root. A request attribute, so it is writable; the API refuses it
+   * once the engine holds the application, which it cannot re-target.
+   */
+  readonly rootDirectory?: string | null | undefined;
 }
 
 /**
@@ -888,6 +898,13 @@ export interface ProjectDeploymentTarget {
    * behaviour rather than being routed to a new engine by a null.
    */
   readonly executionModel: ExecutionModel;
+  /**
+   * The repository-relative directory the project builds from, or null for the
+   * repository root. Resolved here so the worker applies the project's monorepo
+   * setting to a first-time application create without the job payload carrying
+   * a stale copy.
+   */
+  readonly rootDirectory: string | null;
 }
 
 export interface SecurityPolicy {
@@ -1408,6 +1425,15 @@ export interface Project {
    */
   readonly providerResourceId: string | null;
   /**
+   * The repository-relative directory this project builds from, or null for the
+   * repository root.
+   *
+   * A monorepo project points the engine at the subdirectory that holds its app
+   * (`base_directory`). It is a request attribute, so it is writable — unlike
+   * `providerResourceId`, which is the engine's own answer.
+   */
+  readonly rootDirectory: string | null;
+  /**
    * The deployment the project's domains currently serve.
    *
    * Null until a production deployment has succeeded. It is stored, not derived:
@@ -1474,6 +1500,14 @@ export interface Deployment {
   readonly gitRepository: string | null;
   /** The build pack requested, so a redeploy repeats the same build. */
   readonly buildPack: string | null;
+  /**
+   * The repository-relative directory this deployment was built from.
+   *
+   * Null means the repository root. Recorded alongside the source so a redeploy
+   * replays the same subdirectory and the build log is read against the right
+   * one.
+   */
+  readonly rootDirectory: string | null;
 }
 
 export interface AuditEventInput {

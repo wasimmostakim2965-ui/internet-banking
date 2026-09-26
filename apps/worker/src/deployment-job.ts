@@ -95,6 +95,10 @@ export function buildDeploymentJobHandler(deps: DeploymentJobDeps): JobHandler {
         gitRepository: input.gitRepository,
         gitBranch: input.gitBranch,
         buildPack: input.buildPack,
+        // An older job row has no root directory; the project's setting is read
+        // by the executor from the target it already resolves, so a null here is
+        // not a lost monorepo directory.
+        rootDirectory: input.rootDirectory ?? null,
         commit: input.commit,
         timeoutMs: ctx.timeoutMs,
         // An older job row (enqueued before previews existed) has neither field;

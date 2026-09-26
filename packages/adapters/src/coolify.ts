@@ -250,6 +250,7 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
           git_repository: input.gitRepository,
           git_branch: input.gitBranch,
           build_pack: input.buildPack ?? "nixpacks",
+          ...(input.rootDirectory ? { base_directory: input.rootDirectory } : {}),
           ...(input.domains ? { domains: input.domains } : {}),
           ...(input.portsExposes ? { ports_exposes: input.portsExposes } : {}),
         },

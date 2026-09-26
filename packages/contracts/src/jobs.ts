@@ -24,6 +24,11 @@ export interface DeploymentJobPayload {
   readonly gitBranch: string | null;
   /** A `BuildPack` value, kept as a string so contracts stays adapter-free. */
   readonly buildPack: string | null;
+  /**
+   * The repository-relative directory to build from, for a monorepo, or null
+   * for the repository root. A request attribute, replayed by a redeploy.
+   */
+  readonly rootDirectory: string | null;
   /** The git revision a rollback returns to. */
   readonly commit: string | null;
   /**

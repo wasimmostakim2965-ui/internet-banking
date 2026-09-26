@@ -187,6 +187,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       name: str(row, "name"),
       slug: str(row, "slug"),
       providerResourceId: nullableStr(row, "provider_resource_id"),
+      rootDirectory: nullableStr(row, "root_directory"),
       productionDeploymentId: nullableStr(row, "production_deployment_id"),
       executionModel: executionModel(row),
       createdAt: str(row, "created_at"),
@@ -233,6 +234,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       createdAt: str(row, "created_at"),
       gitRepository: nullableStr(row, "git_repository"),
       buildPack: nullableStr(row, "build_pack"),
+      rootDirectory: nullableStr(row, "root_directory"),
     };
   }
 
@@ -1063,6 +1065,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       slug: string;
       createdBy: UserId;
       executionModel?: ExecutionModel;
+      rootDirectory?: string | null;
     }): Promise<Project> {
       const created = await must<Row[]>("createProject", {
         method: "POST",
@@ -1074,6 +1077,9 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           slug: input.slug,
           created_by: input.createdBy,
           ...(input.executionModel ? { execution_model: input.executionModel } : {}),
+          ...(input.rootDirectory !== undefined
+            ? { root_directory: input.rootDirectory }
+            : {}),
         },
       });
       const row = Array.isArray(created) ? created[0] : undefined;
@@ -1123,6 +1129,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           ...(input.previewKey !== undefined ? { preview_key: input.previewKey } : {}),
           ...(input.gitRepository !== undefined ? { git_repository: input.gitRepository } : {}),
           ...(input.buildPack !== undefined ? { build_pack: input.buildPack } : {}),
+          ...(input.rootDirectory !== undefined ? { root_directory: input.rootDirectory } : {}),
         },
       });
       const row = Array.isArray(created) ? created[0] : undefined;
@@ -1263,6 +1270,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       if (input.name !== undefined) patch["name"] = input.name;
       if (input.slug !== undefined) patch["slug"] = input.slug;
       if (input.executionModel !== undefined) patch["execution_model"] = input.executionModel;
+      if (input.rootDirectory !== undefined) patch["root_directory"] = input.rootDirectory;
       if (Object.keys(patch).length === 0) return null;
 
       const updated = await rows("updateProject", {
@@ -1281,7 +1289,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<ProjectDeploymentTarget | null> {
       const found = await rows("getProjectDeploymentTarget", {
         method: "GET",
-        path: `/projects?select=provider,provider_resource_id,execution_model&id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/projects?select=provider,provider_resource_id,execution_model,root_directory&id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       if (!row) return null;
@@ -1289,6 +1297,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         provider: nullableStr(row, "provider"),
         providerResourceId: nullableStr(row, "provider_resource_id"),
         executionModel: executionModel(row),
+        rootDirectory: nullableStr(row, "root_directory"),
       };
     },
 
@@ -1298,7 +1307,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<ProjectDeploymentTarget | null> {
       const found = await rows("getProjectDeploymentTargetForService", {
         method: "GET",
-        path: `/projects?select=provider,provider_resource_id,execution_model&id=eq.${q(projectId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+        path: `/projects?select=provider,provider_resource_id,execution_model,root_directory&id=eq.${q(projectId)}&organization_id=eq.${q(organizationId)}&limit=1`,
       });
       const row = found[0];
       if (!row) return null;
@@ -1306,6 +1315,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         provider: nullableStr(row, "provider"),
         providerResourceId: nullableStr(row, "provider_resource_id"),
         executionModel: executionModel(row),
+        rootDirectory: nullableStr(row, "root_directory"),
       };
     },
 

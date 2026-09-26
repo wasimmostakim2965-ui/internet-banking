@@ -325,6 +325,28 @@ describe("Coolify adapter", () => {
     );
   });
 
+  it("sends a monorepo root directory as base_directory, and omits it when there is none", async () => {
+    requests.length = 0;
+    const coolify = adapter();
+
+    const withRoot = await coolify.createApplication(ctx(ORG_A, "mono-a"), {
+      ...CREATE_INPUT,
+      rootDirectory: "apps/web",
+    });
+    expect(withRoot.ok).toBe(true);
+    const call = requests.find((r) => r.path === "/api/v1/applications/public");
+    // The field name and meaning come from Coolify's own API reference: the
+    // base directory for all commands the engine runs.
+    expect(call?.body.base_directory).toBe("apps/web");
+
+    requests.length = 0;
+    await coolify.createApplication(ctx(ORG_A, "mono-b"), CREATE_INPUT);
+    const without = requests.find((r) => r.path === "/api/v1/applications/public");
+    // Absent means the repository root. Sending an empty string would be a
+    // directory the engine cannot resolve, so the key is not present at all.
+    expect(without?.body.base_directory).toBeUndefined();
+  });
+
   it("reads application state back with the state:health vocabulary", async () => {
     const coolify = adapter();
     const created = await coolify.createApplication(ctx(ORG_A, "a2"), CREATE_INPUT);

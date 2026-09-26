@@ -415,6 +415,85 @@ describe("the dashboard against a live control plane", () => {
     expect((screen.getByLabelText("Name") as HTMLInputElement).disabled).toBe(false);
   });
 
+  it("sets a monorepo root directory from the project settings page", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    let project: Record<string, unknown> = {
+      id: "p-1",
+      organizationId: "org-1",
+      name: "Web app",
+      slug: "web-app",
+      providerResourceId: null,
+      rootDirectory: null,
+    };
+
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: project };
+      }
+      if (procedure === "projects.update") {
+        const body = input as { rootDirectory?: string | null };
+        project = {
+          ...project,
+          ...(body.rootDirectory !== undefined ? { rootDirectory: body.rootDirectory } : {}),
+        };
+        return { ok: true, status: 200, data: project };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/settings");
+
+    const user = userEvent.setup();
+    const root = await screen.findByLabelText("Root directory");
+    await waitFor(() => expect((root as HTMLInputElement).value).toBe(""));
+    // Nothing is editable about the engine application yet, so the field is live.
+    expect((root as HTMLInputElement).disabled).toBe(false);
+
+    await user.type(root, "apps/web");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(calls.some((c) => c.procedure === "projects.update")).toBe(true));
+    const update = calls.find((c) => c.procedure === "projects.update");
+    expect((update!.input as { rootDirectory: string }).rootDirectory).toBe("apps/web");
+  });
+
+  it("locks the root directory once the engine holds the application, and says why", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            id: "p-1",
+            organizationId: "org-1",
+            name: "Web app",
+            slug: "web-app",
+            providerResourceId: "coolify-app-1",
+            rootDirectory: "apps/web",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/settings");
+
+    const root = await screen.findByLabelText("Root directory");
+    await waitFor(() => expect((root as HTMLInputElement).value).toBe("apps/web"));
+    // The engine read base_directory when it created the application and cannot
+    // re-target it, so the control is locked rather than promising a change the
+    // server refuses.
+    expect((root as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/cannot re-target it/i)).toBeTruthy();
+  });
+
   it("navigates by rewriting the URL, so the route survives a reload", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {

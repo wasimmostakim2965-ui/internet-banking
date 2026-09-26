@@ -82,6 +82,14 @@ export interface DeploymentEngine {
       readonly gitRepository: string | null;
       readonly gitBranch: string | null;
       readonly buildPack: string | null;
+      /**
+       * The repository-relative directory to build from, for a monorepo.
+       *
+       * Container-only: Coolify applies it to the commands it runs
+       * (`base_directory`). A serverless engine consumes an already-built
+       * artifact, so the directory belongs to the build step, not here.
+       */
+      readonly rootDirectory?: string | null;
       /** Where a pre-built serverless artifact comes from, when there is one. */
       readonly artifact?: ServerlessArtifact | undefined;
     },
@@ -159,6 +167,7 @@ export function containerDeploymentEngine(hosting: HostingAdapter): DeploymentEn
         ...(input.gitRepository ? { gitRepository: input.gitRepository } : {}),
         ...(input.gitBranch ? { gitBranch: input.gitBranch } : {}),
         ...(input.buildPack ? { buildPack: input.buildPack as BuildPack } : {}),
+        ...(input.rootDirectory ? { rootDirectory: input.rootDirectory } : {}),
       });
     },
     deploy: (ctx, ref) => hosting.deploy(ctx, { applicationRef: ref }),

@@ -308,6 +308,9 @@ export async function deployFromDelivery(
     pullRequest: delivery.pullRequest,
     previewKey,
     gitRepository,
+    // The webhook carries no root directory of its own: the project's setting is
+    // the monorepo directory its builds use, whichever path triggered them.
+    rootDirectory: project.rootDirectory,
   });
 
   if (kind === "preview" && previewKey) {
@@ -330,6 +333,8 @@ export async function deployFromDelivery(
     gitRepository,
     gitBranch: delivery.branch,
     buildPack: null,
+    // A webhook builds the project's configured directory, if it has one.
+    rootDirectory: project.rootDirectory,
     commit: delivery.commit,
     kind,
     previewKey,

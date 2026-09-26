@@ -641,6 +641,7 @@ export function ProjectSettingsPage({
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [executionModel, setExecutionModel] = useState<"container" | "serverless">("container");
+  const [rootDirectory, setRootDirectory] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -654,6 +655,7 @@ export function ProjectSettingsPage({
       setName(project.name);
       setSlug(project.slug);
       setExecutionModel(project.executionModel);
+      setRootDirectory(project.rootDirectory ?? "");
     }
   }, [project]);
 
@@ -661,7 +663,9 @@ export function ProjectSettingsPage({
     Boolean(project) &&
     (name !== project!.name ||
       slug !== project!.slug ||
-      executionModel !== project!.executionModel);
+      executionModel !== project!.executionModel ||
+      rootDirectory.trim().replace(/^\.\/+/, "").replace(/\/+$/, "") !==
+        (project!.rootDirectory ?? ""));
 
   // The slug names the engine application once one exists, and the engine has no
   // rename the API is allowed to call — `projects.update` refuses the change. The
@@ -669,11 +673,27 @@ export function ProjectSettingsPage({
   // something the server will reject.
   const slugLocked = project?.providerResourceId != null;
 
+  // The root directory is written into the application as `base_directory` when
+  // it is created, and Coolify cannot re-target it — the API refuses the change
+  // for the same reason it refuses a slug change. The field locks with the slug.
+  const rootLocked = project?.providerResourceId != null;
+
   const submit = async () => {
     if (!project) return;
     setBusy(true);
     setError(null);
-    const result = await updateProject(client, { projectId, name, slug, executionModel });
+    const trimmedRoot = rootDirectory.trim();
+    const result = await updateProject(client, {
+      projectId,
+      name,
+      slug,
+      executionModel,
+      // Only send it when it changed, so a locked project's save does not carry
+      // a field the server would refuse.
+      ...(rootLocked || trimmedRoot === (project.rootDirectory ?? "")
+        ? {}
+        : { rootDirectory: trimmedRoot === "" ? null : trimmedRoot }),
+    });
     setBusy(false);
     if (result.state.kind !== "ready" || !result.state.items[0]) {
       setError(
@@ -751,6 +771,27 @@ export function ProjectSettingsPage({
                       hint: "Runs on demand from a published build; scales to zero.",
                     },
                   ]}
+                />
+              )}
+            </Field>
+            <Field
+              label="Root directory"
+              hint={
+                rootLocked
+                  ? "This project's root directory is set on the hosting engine when the application is created, and the engine cannot re-target it. It can only change before the first deployment."
+                  : "Optional. For a monorepo, the subdirectory that holds this app's code — the engine runs its build there. Leave empty to build from the repository root."
+              }
+            >
+              {(id) => (
+                <TextInput
+                  id={id}
+                  value={rootDirectory}
+                  disabled={rootLocked}
+                  onChange={(value) => {
+                    setSaved(false);
+                    setRootDirectory(value);
+                  }}
+                  placeholder="apps/web"
                 />
               )}
             </Field>

@@ -61,6 +61,14 @@ export interface CreateApplicationInput {
   readonly buildPack?: BuildPack | undefined;
   readonly domains?: string | undefined;
   readonly portsExposes?: string | undefined;
+  /**
+   * The repository-relative directory the engine builds from, for a monorepo.
+   *
+   * Absent means the repository root. It maps to Coolify's `base_directory`
+   * ("The base directory for all commands"), which the engine applies to every
+   * install/build/start command it runs.
+   */
+  readonly rootDirectory?: string | undefined;
 }
 
 export interface LogPage {

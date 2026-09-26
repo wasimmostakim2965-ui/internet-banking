@@ -11,6 +11,7 @@
  */
 import { allowed, requireCapability, roleFor } from "../guard.js";
 import { ApiError } from "../errors.js";
+import { parseRootDirectory } from "../root-directory.js";
 import type { OrgRole } from "@cloud-wai/authorization";
 import type {
   ControlPlaneWrites,
@@ -116,6 +117,8 @@ export async function createProject(
     slug: string;
     /** The execution model the customer picks; defaults to `container`. */
     executionModel?: ExecutionModel | undefined;
+    /** The monorepo subdirectory to build from; null is the repository root. */
+    rootDirectory?: string | undefined;
   },
 ): Promise<Project> {
   requireCapability(ctx, input.organizationId, "project:create");
@@ -131,6 +134,7 @@ export async function createProject(
     );
   }
   const executionModel = parseExecutionModel(input.executionModel);
+  const rootDirectory = parseRootDirectory(input.rootDirectory);
 
   const project = await deps.store.createProject({
     organizationId: input.organizationId,
@@ -138,6 +142,7 @@ export async function createProject(
     slug: input.slug,
     createdBy: ctx.principal.userId,
     ...(executionModel ? { executionModel } : {}),
+    ...(rootDirectory ? { rootDirectory } : {}),
   });
 
   await deps.store.recordAuditEvent({
@@ -147,7 +152,11 @@ export async function createProject(
     event: "project.created",
     targetType: "project",
     targetId: project.id,
-    metadata: { slug: project.slug, executionModel: project.executionModel },
+    metadata: {
+      slug: project.slug,
+      executionModel: project.executionModel,
+      rootDirectory: project.rootDirectory,
+    },
   });
 
   return project;
@@ -334,6 +343,8 @@ export async function updateProject(
     name?: string | undefined;
     slug?: string | undefined;
     executionModel?: ExecutionModel | undefined;
+    /** The monorepo subdirectory to build from; null clears it to the root. */
+    rootDirectory?: string | null | undefined;
   },
 ): Promise<Project> {
   const existing = await deps.store.getProject(ctx.principal.userId, input.projectId);
@@ -342,10 +353,15 @@ export async function updateProject(
   }
   requireCapability(ctx, existing.organizationId, "project:update");
 
-  if (input.name === undefined && input.slug === undefined && input.executionModel === undefined) {
+  if (
+    input.name === undefined &&
+    input.slug === undefined &&
+    input.executionModel === undefined &&
+    input.rootDirectory === undefined
+  ) {
     throw new ApiError(
       "invalid_input",
-      "Nothing to update: provide a name, a slug or an execution model.",
+      "Nothing to update: provide a name, a slug, an execution model or a root directory.",
     );
   }
 
@@ -369,6 +385,26 @@ export async function updateProject(
   }
 
   const executionModel = parseExecutionModel(input.executionModel);
+
+  // A root directory is written into the engine application at create time
+  // (`base_directory`) and applied to every command the engine runs. Coolify has
+  // no re-target, so changing it once the application exists would leave the
+  // engine building the old directory while the dashboard shows the new one —
+  // the same divergence the slug rule below refuses. The honest answer is to
+  // refuse the change and say why; a fresh project can still set it before the
+  // first deployment.
+  let rootDirectory: string | null | undefined;
+  if (input.rootDirectory !== undefined) {
+    rootDirectory = parseRootDirectory(input.rootDirectory);
+    if (rootDirectory !== existing.rootDirectory && existing.providerResourceId != null) {
+      throw new ApiError(
+        "conflict",
+        "This project's root directory is set on the hosting engine when the application " +
+          "is created, and the engine cannot re-target it. It can only change before the " +
+          "first deployment.",
+      );
+    }
+  }
 
   // The slug *is* the engine application's name — the worker creates the
   // application as `projectSlug` and resolves it afterwards by the stored
@@ -398,6 +434,7 @@ export async function updateProject(
     name,
     slug,
     executionModel,
+    ...(rootDirectory !== undefined ? { rootDirectory } : {}),
   });
   if (!updated) {
     throw new ApiError("not_found", "Project not found.");
@@ -413,6 +450,7 @@ export async function updateProject(
     metadata: {
       slug: updated.slug,
       ...(executionModel ? { executionModel } : {}),
+      ...(rootDirectory !== undefined ? { rootDirectory: updated.rootDirectory } : {}),
     },
   });
 

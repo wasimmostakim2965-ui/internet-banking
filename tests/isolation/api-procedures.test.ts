@@ -71,6 +71,8 @@ function makeStore() {
       organizationId: ORG_A,
       name: "P",
       slug: "p",
+      providerResourceId: null,
+      rootDirectory: null,
       createdAt: "2026-01-01T00:00:00Z",
     },
   ];
@@ -153,6 +155,8 @@ function makeStore() {
         organizationId: input.organizationId,
         name: input.name,
         slug: input.slug,
+        providerResourceId: null,
+        rootDirectory: input.rootDirectory ?? null,
         createdAt: "2026-01-01T00:00:00Z",
       };
       projects.push(p);
@@ -168,6 +172,7 @@ function makeStore() {
         name: input.name ?? p.name,
         slug: input.slug ?? p.slug,
         ...(input.executionModel ? { executionModel: input.executionModel } : {}),
+        ...(input.rootDirectory !== undefined ? { rootDirectory: input.rootDirectory } : {}),
       };
       projects[projects.indexOf(p)] = next;
       return next;
@@ -805,6 +810,132 @@ describe("projects.update through the registered procedures", () => {
 
     expect(res.ok).toBe(true);
     expect(projects[0]?.slug).toBe("renamed");
+  });
+
+  it("sets a monorepo root directory and normalises it before storing", async () => {
+    const { store, projects, audit } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      // A leading `./` and a trailing `/` are what a person types; the stored
+      // value is the plain relative path the engine's base_directory wants.
+      input: { projectId: "p-1", rootDirectory: "./apps/web/" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect((res.data as Project).rootDirectory).toBe("apps/web");
+    expect(projects[0]?.rootDirectory).toBe("apps/web");
+    expect(
+      audit.some(
+        (a) => a.event === "project.updated" && a.metadata?.rootDirectory === "apps/web",
+      ),
+    ).toBe(true);
+  });
+
+  it("clears a root directory back to the repository root", async () => {
+    const { store, projects } = makeStore();
+    projects[0] = { ...projects[0]!, rootDirectory: "apps/web" };
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1", rootDirectory: "" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(projects[0]?.rootDirectory).toBeNull();
+  });
+
+  it("refuses a root directory that would escape the checkout", async () => {
+    const { store, projects } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    for (const rootDirectory of ["/etc", "../other-app", "apps/../../etc", "apps\\web"]) {
+      const res = await router.route({
+        procedure: "projects.update",
+        accessToken: TOKEN_ALICE,
+        input: { projectId: "p-1", rootDirectory },
+      });
+      expect(res.status, `expected ${rootDirectory} to be refused`).toBe(400);
+      expect(res.error?.code).toBe("invalid_input");
+    }
+    // Nothing was written by any of the refused attempts.
+    expect(projects[0]?.rootDirectory).toBeNull();
+  });
+
+  it("refuses a root directory change once the hosting engine holds the application", async () => {
+    const { store, projects } = makeStore();
+    // The engine reads base_directory when it creates the application and has no
+    // re-target, so the value is frozen with the slug — same divergence, same
+    // refusal.
+    projects[0] = { ...projects[0]!, providerResourceId: "coolify-app-1" };
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1", rootDirectory: "apps/web" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(409);
+    expect(res.error?.code).toBe("conflict");
+    expect(projects[0]?.rootDirectory).toBeNull();
+  });
+
+  it("allows re-sending the root directory a locked project already has", async () => {
+    const { store, projects } = makeStore();
+    projects[0] = {
+      ...projects[0]!,
+      providerResourceId: "coolify-app-1",
+      rootDirectory: "apps/web",
+    };
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1", name: "Renamed", rootDirectory: "apps/web" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(projects[0]?.name).toBe("Renamed");
+    expect(projects[0]?.rootDirectory).toBe("apps/web");
+  });
+});
+
+describe("projects.create with a root directory", () => {
+  it("stores the directory a monorepo project builds from", async () => {
+    const { store, projects } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "Web", slug: "web", rootDirectory: "apps/web" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect((res.data as Project).rootDirectory).toBe("apps/web");
+    expect(projects.some((p) => p.slug === "web" && p.rootDirectory === "apps/web")).toBe(true);
+  });
+
+  it("rejects an escaping directory before the project exists", async () => {
+    const { store, projects } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "Web", slug: "web", rootDirectory: "../x" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.error?.code).toBe("invalid_input");
+    expect(projects.some((p) => p.slug === "web")).toBe(false);
   });
 });
 

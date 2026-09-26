@@ -16,6 +16,7 @@
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
+import { parseRootDirectory } from "../root-directory.js";
 import { assertWithinBudget } from "./billing.js";
 import type {
   AdapterResult,
@@ -281,6 +282,12 @@ export interface CreateDeploymentInput {
   readonly commit?: string | undefined;
   readonly buildPack?: BuildPack | undefined;
   /**
+   * The monorepo subdirectory to build from, for a repository that hosts several
+   * apps. Absent means the project's own `rootDirectory`, and then the
+   * repository root.
+   */
+  readonly rootDirectory?: string | undefined;
+  /**
    * `production` (the default) or `preview`.
    *
    * A preview build gets its own engine application, keyed by the branch, so two
@@ -403,6 +410,7 @@ export async function redeployDeployment(
     ...(source.gitRepository ? { gitRepository: source.gitRepository } : {}),
     ...(source.gitBranch ? { gitBranch: source.gitBranch } : {}),
     ...(source.buildPack ? { buildPack: source.buildPack as BuildPack } : {}),
+    ...(source.rootDirectory ? { rootDirectory: source.rootDirectory } : {}),
     kind: source.kind,
     ...(source.pullRequest !== null ? { pullRequest: source.pullRequest } : {}),
   });
@@ -753,6 +761,13 @@ export async function requestDeployment(
   const commit = optionalRef(input.commit, "Commit");
   const gitRepository = optionalRepository(input.gitRepository);
   const buildPack = optionalBuildPack(input.buildPack);
+  // The request's own value wins; otherwise the project's setting; otherwise the
+  // repository root. Resolved once here so the row, the job payload and the
+  // engine all see the same directory.
+  const rootDirectory =
+    input.rootDirectory !== undefined
+      ? parseRootDirectory(input.rootDirectory)
+      : project.rootDirectory;
 
   // A preview build is identified by its *target* — the pull request, or the
   // branch — not by the delivery, so pushing twice to one branch redeploys the
@@ -809,6 +824,7 @@ export async function requestDeployment(
     previewKey,
     gitRepository,
     buildPack,
+    rootDirectory,
   });
 
   // A preview build needs its target recorded before the worker runs, so two
@@ -839,6 +855,7 @@ export async function requestDeployment(
       gitRepository,
       gitBranch,
       buildPack,
+      rootDirectory,
       commit,
       kind,
       previewKey,
@@ -936,6 +953,7 @@ export async function requestDeployment(
       gitRepository: gitRepository ?? null,
       gitBranch: gitBranch ?? null,
       buildPack,
+      rootDirectory,
     });
     if (!created.ok) {
       engineReason = created.reason;
@@ -977,6 +995,7 @@ export async function requestDeployment(
           repository: gitRepository ?? null,
           branch: gitBranch ?? null,
           buildPack,
+          rootDirectory,
         },
       );
       if (!built.ok) {
@@ -1131,6 +1150,9 @@ export async function rollbackDeployment(
       gitRepository: null,
       gitBranch: null,
       buildPack: null,
+      // A rollback returns to a revision the engine already holds, so it has no
+      // source of its own to build from — and no root directory either.
+      rootDirectory: null,
       commit,
       // A rollback targets the production application, never a preview.
       kind: "production",

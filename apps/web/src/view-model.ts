@@ -31,6 +31,15 @@ export interface ProjectSummary {
   readonly providerResourceId: string | null;
   /** Container (Coolify) or serverless (Lambda). A project's own choice. */
   readonly executionModel: "container" | "serverless";
+  /**
+   * The repository-relative directory this project builds from, or null for the
+   * repository root.
+   *
+   * A monorepo project points the engine at the subdirectory holding its app.
+   * The Settings page edits it, and locks it once the engine holds the
+   * application (which cannot be re-targeted).
+   */
+  readonly rootDirectory: string | null;
 }
 
 export interface DeploymentSummary {
@@ -459,6 +468,7 @@ export async function updateProject(
     name?: string;
     slug?: string;
     executionModel?: "container" | "serverless";
+    rootDirectory?: string | null;
   },
 ): Promise<Section<ProjectSummary>> {
   const response = await client.call<ProjectSummary>("projects.update", input);

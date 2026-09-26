@@ -31,6 +31,8 @@ export interface DeploymentTarget {
   readonly provider: string | null;
   readonly providerResourceId: string | null;
   readonly executionModel: ExecutionModel;
+  /** The project's monorepo directory, or null for the repository root. */
+  readonly rootDirectory: string | null;
 }
 
 /**
@@ -130,6 +132,15 @@ export interface ExecuteDeploymentInput {
   readonly gitRepository: string | null;
   readonly gitBranch: string | null;
   readonly buildPack: string | null;
+  /**
+   * The monorepo subdirectory to build from, as the deployment row recorded it.
+   *
+   * Null when the request had none, which is also the case for a job enqueued
+   * before this field existed. The executor then falls back to the project's own
+   * setting, read from the target below, so an old queued job still builds the
+   * directory the project is configured for.
+   */
+  readonly rootDirectory: string | null;
   /** The git revision a rollback returns to. */
   readonly commit: string | null;
   readonly timeoutMs: number;
@@ -210,6 +221,12 @@ export async function executeDeployment(
   );
   const isPreview = input.kind === "preview" && input.previewKey !== null;
 
+  // The row's recorded directory is what this build was requested with. A job
+  // enqueued before the column existed carries null, so the project's own
+  // setting — read from the target resolved above — is the fallback; a preview
+  // uses the project's setting too, since it has no root directory of its own.
+  const rootDirectory = input.rootDirectory ?? target?.rootDirectory ?? null;
+
   // A preview is a container concept: a branch build of a long-lived
   // application. It is container even for a serverless project, and a preview
   // must never be routed to the serverless engine, which has no preview.
@@ -271,6 +288,7 @@ export async function executeDeployment(
       gitRepository: input.gitRepository,
       gitBranch: input.gitBranch,
       buildPack: input.buildPack,
+      rootDirectory,
     });
     if (!created.ok) {
       return {
@@ -330,6 +348,7 @@ export async function executeDeployment(
         repository: input.gitRepository,
         branch: input.gitBranch,
         buildPack: input.buildPack,
+        rootDirectory,
       },
     );
     if (!built.ok) {

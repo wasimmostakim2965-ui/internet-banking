@@ -46,6 +46,8 @@ export interface BuildStepInput {
   readonly repository: string | null;
   readonly branch: string | null;
   readonly buildPack: string | null;
+  /** The monorepo subdirectory to build from, when the app is not at the root. */
+  readonly rootDirectory?: string | null;
 }
 
 export type BuildStepResult =
@@ -87,6 +89,7 @@ export async function runBuildStep(
       kind: "git",
       repository: input.repository,
       ...(input.branch ? { branch: input.branch } : {}),
+      ...(input.rootDirectory ? { rootDirectory: input.rootDirectory } : {}),
     },
     ...(input.buildPack ? { buildPack: input.buildPack as never } : {}),
   });
